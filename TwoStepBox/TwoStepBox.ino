@@ -32,6 +32,7 @@ bool posRepFlag = true;
 bool diagRequest = false;
 byte cylCount = 4;
 bool clutchLogic = true;
+bool cutActive = false;
 
 
 
@@ -112,6 +113,7 @@ void loop() {
       SparkState = HIGH;
       digitalWrite(bluePin, HIGH);
       digitalWrite(redPin, LOW);
+      cutActive = false;
       //Serial.println("Coil is On");
     }
     else{
@@ -119,6 +121,7 @@ void loop() {
     }
      //Write ignition control out
     digitalWrite(SparkOutput, SparkState);
+   // Serial.println(SparkState);
 
     if (Serial.available()){
       SerialComms();
@@ -371,12 +374,56 @@ void RPMcounter(){
 
 void ignControl(){
   //Do ignition control methods
-   if ((RPM > cutRPM) && (SparkState == HIGH)){
+
+  if (timeToCut > 1000){
+    if ((RPM > cutRPM) && (SparkState == HIGH) && (!cutActive)){
       //Spark is cut
       SparkState = LOW;
+      cutActive = true;
       digitalWrite(bluePin, LOW);
       digitalWrite(redPin, HIGH);
       cutTime = millis();
+    }
+    else if ((cutActive) && (millis() - cutTime > timeToCut)){
+        SparkState = HIGH;
+        cutTime = millis();
+        digitalWrite(bluePin, HIGH);
+        digitalWrite(redPin, LOW);
+    }
+  }
+  else{
+    if ((RPM > cutRPM) && (SparkState == HIGH) && (!cutActive)){
+        //Spark is cut
+        cutActive = true;
+        cutTime = millis();
+      }
+      if ((RPM < cutRPM +500) && (cutActive) && (millis() - cutTime > timeToCut)){
+        SparkState = !SparkState;
+        cutTime = millis();
+        digitalWrite(bluePin, SparkState);
+        digitalWrite(redPin, !SparkState);
+      }
+      else if((RPM >= cutRPM +500) && (cutActive)){
+        SparkState = LOW;
+        digitalWrite(bluePin, LOW);
+        digitalWrite(redPin, HIGH);
+      }
+      if (RPM < cutRPM - 1500){
+        cutActive = false;
+        SparkState = HIGH;
+      }
+  }
+  /*
+   if ((RPM > cutRPM) && (SparkState == HIGH) && (!cutActive){
+      //Spark is cut
+      SparkState = LOW;
+      cutActive = true;
+      digitalWrite(bluePin, LOW);
+      digitalWrite(redPin, HIGH);
+      cutTime = millis();
+    }
+    else if (millis() - cutTime > timeToCut){
+      
     }
     else if (millis() - cutTime > timeToCut){
       //Spark is restored after a set time
@@ -387,11 +434,7 @@ void ignControl(){
         digitalWrite(bluePin, HIGH);
         digitalWrite(redPin, LOW);
         cutTime = millis();
-      }
-     if (RPM < 2000){
-      //Spark is restored if RPM is less than 2000
-        SparkState = HIGH;
-    }
+      }*/
 }
 
 
