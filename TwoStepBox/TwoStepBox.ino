@@ -33,7 +33,7 @@ bool diagRequest = false;
 byte cylCount = 4;
 bool clutchLogic = true;
 bool cutActive = false;
-
+byte RPMerror = 0;
 
 
 //Working Variables
@@ -145,6 +145,19 @@ void loop() {
 byte positionCheck(){
   byte potPosition = (8*!digitalRead(pinFour)) + (4*!digitalRead(pinThree)) +(2*!digitalRead(pinTwo)) +(!digitalRead(pinOne));
 
+  /*if ((RPM == RPMold) && (RPM != 0)){
+      RPMerror++;
+      Serial.println("RPM ERROR COUNT!");
+      if (RPMerror > 3){
+        RPM = 0;
+        RPMold = 0;
+        RPMerror = 0;
+        Serial.println("RPM ERROR!");
+      }
+    }
+    else{
+      RPMerror = 0;
+    }*/
 
     if ( (potPosition & 0x01) == 0) { 
       byte high = EEPROM.read(potPosition);
@@ -200,7 +213,7 @@ byte positionCheck(){
 void SerialDiag(){
   unsigned int posRep = millis() - positionReport;
   
-  if (posRep > 3000){
+  if (posRep >= 3000){
     Serial.print("Pot POsition: "); Serial.println(potPosition);
     Serial.print("cutRPM: "); Serial.println(cutRPM);
     Serial.print("Time to Cut: "); Serial.print(timeToCut);Serial.println("ms");
@@ -211,16 +224,14 @@ void SerialDiag(){
      posRep = 0;
      positionReport = millis();
   }
-  if((posRep == 251) || (posRep == 501) || (posRep == 1001) || (posRep == 1251) || 
-      (posRep == 1501) || (posRep == 1751) ||(posRep == 2001) || (posRep == 2251) || 
-      (posRep == 2501) || (posRep == 2751)){
-        posRepFlag = true;
-      }
-  if (((posRep == 250) || (posRep == 500) || (posRep == 1000) || (posRep == 1250) || 
-      (posRep == 1500) || (posRep == 1750) ||(posRep == 2000) || (posRep == 2250) || 
-      (posRep == 2500) || (posRep == 2750)) && posRepFlag){
-    Serial.print("RPM: "); Serial.println(RPM);
+  if (((posRep % 250) == 0) && posRepFlag){
+    if (posRepFlag){
+      Serial.print("RPM: "); Serial.println(RPM);
+    }
     posRepFlag = false;
+  }
+  else if((posRep % 250) != 0){
+    posRepFlag = true;
   }
 }
 
@@ -350,25 +361,21 @@ void SerialComms(){
 
 void triggerCounter(){
   trigCounter++;
-  //Serial.println("READ");
+  //Serial.println("TRIGGER");
 }
 
 void RPMcounter(){
   times = millis()-timeOld;        //finds the time 
   RPM = (30108/times);         //calculates rpm
-  //if (SparkState == 1){
-
-    RPM = RPM*cylCount;
-  //}
+  RPM = RPM*cylCount;
   if ((RPM - RPMold) > 10000){
     RPM = RPMold;
   }
   timeOld = millis();
- // Serial.print("RPMs are: "); Serial.println(RPM);
-  // Serial.print("RPMOLDs are: "); Serial.println(RPMold);
-  if ((RPM > 500) && (RPM < 7000)){
+  if ((RPM > 0) && (RPM < 7000)){
     RPMold = RPM;
   }
+
   trigCounter = 0;
 }
 
@@ -409,6 +416,8 @@ void ignControl(){
         digitalWrite(redPin, HIGH);
       }
       if (RPM < cutRPM - 1500){
+        digitalWrite(bluePin, HIGH);
+        digitalWrite(redPin, LOW);
         cutActive = false;
         SparkState = HIGH;
       }
