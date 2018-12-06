@@ -22,8 +22,15 @@ void writeIntToEEPROM(unsigned int address, int value){
   EEPROM.update(address + 1, lowByte(value));
 }
 
-
 bool burnCalibration(byte positionSelect, int cutRPM, int cutTime){
+/*
+  EEPROM.update(positionSelect+positionSelect,highByte(boostRPM));
+  EEPROM.update(positionSelect+positionSelect+1,lowByte(boostRPM));
+  EEPROM.update(positionSelect+positionSelect+32,highByte(dutyCycle));
+    EEPROM.update(positionSelect+positionSelect+33,lowByte(dutyCycle));
+  EEPROM.update(250,true);// address 8 saved calibration status
+  Serial.println("All calibration values are saved");
+  return true; //to be used to set calibration flag*/
   if ( (positionSelect & 0x01) == 0) { 
     EEPROM.update(positionSelect,highByte(cutRPM));
     EEPROM.update(positionSelect+1,lowByte(cutRPM));
@@ -55,3 +62,18 @@ byte convertASCIItoByte(byte input){
   return output;
 }
 
+/*
+ * Calculates integer power values. Same as pow() but with ints
+ */
+inline long powint(int factor, int exponent)
+{
+  if (exponent < 0){
+    long product = 0;
+  }
+  else{
+   long product = 1;
+   unsigned int counter = exponent;
+   while ( (counter--) > 0) { product *= factor; }
+   return product;
+  }
+}

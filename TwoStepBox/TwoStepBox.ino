@@ -14,40 +14,60 @@ byte ArmTriggerPin = 5;
 byte bluePin = 9;
 byte redPin = 10;
 
-int analogIn = A4;
+byte analogIn = A4;
 
-int pinOne = A0;
-int pinTwo = A1;
-int pinThree = A2;
-int pinFour = A3;
+byte pinOne = A0;
+byte pinTwo = A1;
+byte pinThree = A2;
+byte pinFour = A3;
 
 //Program variables
 int cutRPM;
 
 int timeToCut; 
 //int armVoltage;
-int positionCheckcount = 0;
+byte positionCheckcount = 0;
 byte potPosition;
-bool posRepFlag = true;
-bool diagRequest = false;
 byte cylCount = 4;
-bool clutchLogic = true;
-bool cutActive = false;
 byte RPMerror = 0;
 
+byte bitField = B1000010; //field of working bits for states
+
+#define BIT_POS_REP_FLAG  0 //Position Report enabled
+#define BIT_DIAG_REQUEST  1 
+#define BIT_CLUTCH_LOGIC  2
+#define BIT_CUT_ACTIVE    3
+#define BIT_ARM_TRIGGER   4
+#define BIT_SPARK_STATE   5
+#define BIT_TOYOTA_FAKE   6
+
+
+/*
+bool posRepFlag = true;
+bool diagRequest = false;
+bool clutchLogic = true;
+bool cutActive = false;
+bool armTriggerbool = false;
+bool SparkState;
+bool fakeOutState = false;
+*/
 
 //Working Variables
 long RPM;
 long RPMold;
 unsigned long times;
 unsigned long timeOld;
-bool armTriggerbool = false;
-bool SparkState;
+
 //bool correctionFlag = false;
 byte trigCounter;
 unsigned long cutTime;
 unsigned long positionReport = 0;
 
+//toyota function
+byte toyotaDivision = 0;
+byte timeCount = 0;
+unsigned long timeTick = 0;
+byte fakePin = 2;
 
 void setup() {
 	//Begin Serial comms
@@ -57,6 +77,7 @@ void setup() {
 	pinMode(SparkOutput, OUTPUT);
  pinMode(bluePin,OUTPUT);
  pinMode(redPin,OUTPUT);
+ pinMode(fakePin, OUTPUT);
 	pinMode(ArmTriggerPin, INPUT_PULLUP);
 	pinMode(RPMinputPin, INPUT);
   pinMode(pinOne, INPUT_PULLUP);pinMode(pinTwo, INPUT_PULLUP);pinMode(pinThree, INPUT_PULLUP);pinMode(pinFour, INPUT_PULLUP);
@@ -72,67 +93,70 @@ void setup() {
 	 timeOld = 0;
 	 times = 0;
   cutRPM = 4000;
-	 armTriggerbool = false;
-	 SparkState = HIGH;
+	 /*armTriggerbool = false;
+	 bitSet(bitField, BIT_SPARK_STATE);*/
+  bitClear(bitField, BIT_DIAG_REQUEST);
   positionCheckcount = 0;
   trigCounter = 0;
   cutTime = 0;
   timeToCut = 5;
 	cylCount = EEPROM.read(70);
+ 
+ 
   if (cylCount > 8){
     cylCount = 4;
   }
-  clutchLogic = EEPROM.read(71);
+ bitWrite(bitField, BIT_CLUTCH_LOGIC, EEPROM.read(71));
 
 	 //Attach RPM input interrupt
   attachInterrupt(digitalPinToInterrupt(3), triggerCounter, RISING);
 }
 
 void loop() {
-  /*armVoltage = analogRead(A4);
-  if (armVoltage > 600){
-    armTriggerbool = true;
-  }
-  else{armTriggerbool = false;}*/
 
+  toyotaFunction();
+  if (bitRead(bitField, BIT_CLUTCH_LOGIC)){
 
-  if (clutchLogic){
-
-    armTriggerbool = digitalRead(ArmTriggerPin);
+    bitWrite(bitField,BIT_ARM_TRIGGER,digitalRead(ArmTriggerPin));
 
   }
-  else{  armTriggerbool = !digitalRead(ArmTriggerPin);}
+  else{  bitWrite(bitField,BIT_ARM_TRIGGER,!digitalRead(ArmTriggerPin));}
   //Serial.println(digitalRead(ArmTriggerPin));
 
 
   if (trigCounter > 0){
     RPMcounter();
   }
+  if ((micros()- timeOld) > 670180){
+    RPM = 0;
+  }
 
-    if (!armTriggerbool){
-      SparkState = HIGH;
+    if (!bitRead(bitField, BIT_ARM_TRIGGER)){
+      bitSet(bitField, BIT_SPARK_STATE);
       digitalWrite(bluePin, HIGH);
       digitalWrite(redPin, LOW);
-      cutActive = false;
+      bitClear(bitField, BIT_CUT_ACTIVE);
       //Serial.println("Coil is On");
     }
     else{
       ignControl();
     }
      //Write ignition control out
-    digitalWrite(SparkOutput, SparkState);
-   // Serial.println(SparkState);
+    digitalWrite(SparkOutput, bitRead(bitField, BIT_SPARK_STATE));
+   // Serial.println(bitRead(bitField, BIT_SPARK_STATE));
 
     if (Serial.available()){
       SerialComms();
     }
 
     
-    if (diagRequest){
+    if (bitRead(bitField,BIT_DIAG_REQUEST)){
       SerialDiag();
     }
-    positionCheckcount++;
-    if (positionCheckcount > 20000){
+    if (millis() % 2){
+      positionCheckcount++;
+    }
+    if (positionCheckcount > 250){
       byte oldPotPos = (8*!digitalRead(pinFour)) + (4*!digitalRead(pinThree)) +(2*!digitalRead(pinTwo)) +(!digitalRead(pinOne)) ;
      potPosition = positionCheck();
      if (oldPotPos != potPosition){
@@ -144,20 +168,6 @@ void loop() {
 
 byte positionCheck(){
   byte potPosition = (8*!digitalRead(pinFour)) + (4*!digitalRead(pinThree)) +(2*!digitalRead(pinTwo)) +(!digitalRead(pinOne));
-
-  /*if ((RPM == RPMold) && (RPM != 0)){
-      RPMerror++;
-      Serial.println("RPM ERROR COUNT!");
-      if (RPMerror > 3){
-        RPM = 0;
-        RPMold = 0;
-        RPMerror = 0;
-        Serial.println("RPM ERROR!");
-      }
-    }
-    else{
-      RPMerror = 0;
-    }*/
 
     if ( (potPosition & 0x01) == 0) { 
       byte high = EEPROM.read(potPosition);
@@ -176,38 +186,27 @@ byte positionCheck(){
       low = EEPROM.read(potPosition + 49);
       timeToCut = word(high,low);
     }
- /* switch (potPosition){
-    case 15:
-      cutRPM = 10000;
-      timeToCut = 0;
-      break;
-    case 7:
-      cutRPM = 2500;
-      timeToCut = 2;
-      break;
-    case 11:
-      cutRPM = 4000;
-      timeToCut = 2;
-      break;
-    case 3:
-      cutRPM = 5000;
-      timeToCut = 2;
-      break;
-    case 13:
-      cutRPM = 4500;
-      timeToCut = 100;
-      break;
-    case 5:
-      cutRPM = 5000;
-      timeToCut = 200;
-      break;
-    case 9:
-      cutRPM = 6000;
-      timeToCut = 200;
-      break;
-  }*/
-  
   return potPosition;
+}
+
+void toyotaFunction(){
+	if(millis() > timeTick){
+		toyotaDivision = times/4;
+		timeTick = millis();
+		timeCount++;
+    //Serial.println("insideloop1");
+		if(timeCount > toyotaDivision){
+			timeCount = 0;
+			bitClear(bitField, BIT_TOYOTA_FAKE);
+      //    Serial.println(fakeOutState);
+			digitalWrite(fakePin, bitRead(bitField, BIT_TOYOTA_FAKE));
+		}
+		if(timeCount == 1){
+			bitSet(bitField, BIT_TOYOTA_FAKE);
+        //  Serial.println(bitRead(bitField, BIT_TOYOTA_FAKE));
+			digitalWrite(fakePin, bitRead(bitField, BIT_TOYOTA_FAKE));
+		}
+	}
 }
 
 void SerialDiag(){
@@ -217,21 +216,19 @@ void SerialDiag(){
     Serial.print("Pot POsition: "); Serial.println(potPosition);
     Serial.print("cutRPM: "); Serial.println(cutRPM);
     Serial.print("Time to Cut: "); Serial.print(timeToCut);Serial.println("ms");
-    Serial.print("Clutch Armed: ");Serial.println(armTriggerbool);
+    Serial.print("Clutch Armed: ");Serial.println(bitRead(bitField,BIT_ARM_TRIGGER));
     Serial.print("CylMode: ");Serial.println(cylCount);
     //Serial.print("AnalogIn: ");Serial.println(armVoltage);
-     Serial.print("Ignition Output: ");Serial.println(SparkState);
+     Serial.print("Ignition Output: ");Serial.println(bitRead(bitField, BIT_SPARK_STATE));
      posRep = 0;
      positionReport = millis();
   }
-  if (((posRep % 250) == 0) && posRepFlag){
-    if (posRepFlag){
-      Serial.print("RPM: "); Serial.println(RPM);
-    }
-    posRepFlag = false;
+  if (((posRep % 250) == 0) && (bitRead(bitField, BIT_POS_REP_FLAG))){
+    Serial.print("RPM: "); Serial.println(RPM);
+    bitClear(bitField, BIT_POS_REP_FLAG);
   }
   else if((posRep % 250) != 0){
-    posRepFlag = true;
+    bitSet(bitField, BIT_POS_REP_FLAG);
   }
 }
 
@@ -294,10 +291,10 @@ void SerialComms(){
   } // End write command
   
   else if (commandChar == 'r'){
-    diagRequest = !diagRequest; // activate diag
+    bitWrite(bitField, BIT_DIAG_REQUEST, !bitRead(bitField, BIT_DIAG_REQUEST)); // activate diag
 
 
-    Serial.print("diagRequest = "); Serial.println(diagRequest);
+    Serial.print("diagRequest = "); Serial.println(bitRead(bitField, BIT_DIAG_REQUEST));
     if ( (potPosition & 0x01) == 0) { 
       byte high = EEPROM.read(potPosition);
       byte low = EEPROM.read(potPosition+1);
@@ -327,8 +324,8 @@ void SerialComms(){
 
  else if (commandChar == 'i'){
 
-    clutchLogic = !clutchLogic;
-    EEPROM.update(71,clutchLogic);
+    bitWrite(bitField, BIT_CLUTCH_LOGIC, !(bitRead(bitField, BIT_CLUTCH_LOGIC)));
+    EEPROM.update(71,(bitRead(bitField, BIT_CLUTCH_LOGIC)));
     Serial.println("Clutch logic inverted!");
   }// end I case
   
@@ -365,67 +362,70 @@ void triggerCounter(){
 }
 
 void RPMcounter(){
-  times = millis()-timeOld;        //finds the time 
-  RPM = (30108/times);         //calculates rpm
-  RPM = RPM*cylCount;
+ // Serial.print("micros "); Serial.print(micros());Serial.print("timeOld ");Serial.println(timeOld);
+  times = micros()-timeOld;        //finds the time 
+  //Serial.print("Times: "); Serial.println(times);
+  RPM = (30108000/times);         //calculates rpm
+ // Serial.println(RPM);
+  RPM = RPM*(cylCount);
   if ((RPM - RPMold) > 10000){
     RPM = RPMold;
   }
-  timeOld = millis();
-  if ((RPM > 0) && (RPM < 7000)){
+  timeOld = micros();
+  if ((RPM > 0) && (RPM < 12000)){
     RPMold = RPM;
   }
-
+  
   trigCounter = 0;
 }
 
 void ignControl(){
   //Do ignition control methods
 
-  if (timeToCut > 1000){
-    if ((RPM > cutRPM) && (SparkState == HIGH) && (!cutActive)){
+  if (timeToCut > 3000){
+    if ((RPM > cutRPM) && (bitRead(bitField, BIT_SPARK_STATE) == HIGH) && (!bitRead(bitField,BIT_CUT_ACTIVE))){
       //Spark is cut
-      SparkState = LOW;
-      cutActive = true;
+      bitClear(bitField, BIT_SPARK_STATE);
+      bitSet(bitField,BIT_CUT_ACTIVE);
       digitalWrite(bluePin, LOW);
       digitalWrite(redPin, HIGH);
       cutTime = millis();
     }
-    else if ((cutActive) && (millis() - cutTime > timeToCut)){
-        SparkState = HIGH;
+    else if ((bitRead(bitField,BIT_CUT_ACTIVE)) && (millis() - cutTime > timeToCut)){
+        bitSet(bitField, BIT_SPARK_STATE);
         cutTime = millis();
         digitalWrite(bluePin, HIGH);
         digitalWrite(redPin, LOW);
     }
   }
   else{
-    if ((RPM > cutRPM) && (SparkState == HIGH) && (!cutActive)){
+    if ((RPM > cutRPM) && (bitRead(bitField, BIT_SPARK_STATE) == HIGH) && (!bitRead(bitField,BIT_CUT_ACTIVE))){
         //Spark is cut
-        cutActive = true;
+        bitSet(bitField,BIT_CUT_ACTIVE);
         cutTime = millis();
       }
-      if ((RPM < cutRPM +500) && (cutActive) && (millis() - cutTime > timeToCut)){
-        SparkState = !SparkState;
+      if ((RPM < cutRPM +700) && (bitRead(bitField,BIT_CUT_ACTIVE) && (millis() - cutTime > timeToCut))){
+        bitWrite(bitField, BIT_SPARK_STATE, !bitRead(bitField, BIT_SPARK_STATE));
         cutTime = millis();
-        digitalWrite(bluePin, SparkState);
-        digitalWrite(redPin, !SparkState);
+        digitalWrite(bluePin, bitRead(bitField, BIT_SPARK_STATE));
+        digitalWrite(redPin, !bitRead(bitField, BIT_SPARK_STATE));
       }
-      else if((RPM >= cutRPM +500) && (cutActive)){
-        SparkState = LOW;
+      else if((RPM >= cutRPM + 700) && (bitRead(bitField,BIT_CUT_ACTIVE))){
+        bitClear(bitField, BIT_SPARK_STATE);
         digitalWrite(bluePin, LOW);
         digitalWrite(redPin, HIGH);
       }
       if (RPM < cutRPM - 1500){
         digitalWrite(bluePin, HIGH);
         digitalWrite(redPin, LOW);
-        cutActive = false;
-        SparkState = HIGH;
+        bitClear(bitField,BIT_CUT_ACTIVE);
+        bitSet(bitField, BIT_SPARK_STATE);
       }
   }
   /*
    if ((RPM > cutRPM) && (SparkState == HIGH) && (!cutActive){
       //Spark is cut
-      SparkState = LOW;
+      bitClear(bitField, BIT_SPARK_STATE);
       cutActive = true;
       digitalWrite(bluePin, LOW);
       digitalWrite(redPin, HIGH);
@@ -439,7 +439,7 @@ void ignControl(){
       if (RPM > cutRPM){
         RPM = cutRPM - 100;
       } // forces spark on even if RPM is greater than cut for one cycle
-        SparkState = HIGH;
+        bitSet(bitField, BIT_SPARK_STATE);
         digitalWrite(bluePin, HIGH);
         digitalWrite(redPin, LOW);
         cutTime = millis();
