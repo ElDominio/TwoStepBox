@@ -23,14 +23,15 @@ void writeIntToEEPROM(unsigned int address, int value){
 }
 
 bool burnCalibration(byte positionSelect, int cutRPM, int cutTime){
-/*
-  EEPROM.update(positionSelect+positionSelect,highByte(boostRPM));
-  EEPROM.update(positionSelect+positionSelect+1,lowByte(boostRPM));
-  EEPROM.update(positionSelect+positionSelect+32,highByte(dutyCycle));
-    EEPROM.update(positionSelect+positionSelect+33,lowByte(dutyCycle));
+
+  EEPROM.update(positionSelect+positionSelect,highByte(cutRPM));
+  EEPROM.update(positionSelect+positionSelect+1,lowByte(cutRPM));
+  EEPROM.update(positionSelect+positionSelect+32,highByte(cutTime));
+    EEPROM.update(positionSelect+positionSelect+33,lowByte(cutTime));
   EEPROM.update(250,true);// address 8 saved calibration status
   Serial.println("All calibration values are saved");
-  return true; //to be used to set calibration flag*/
+  return true; //to be used to set calibration flag
+  /*
   if ( (positionSelect & 0x01) == 0) { 
     EEPROM.update(positionSelect,highByte(cutRPM));
     EEPROM.update(positionSelect+1,lowByte(cutRPM));
@@ -42,8 +43,8 @@ bool burnCalibration(byte positionSelect, int cutRPM, int cutTime){
     EEPROM.update(positionSelect+17,lowByte(cutRPM));
     EEPROM.update(positionSelect+48,highByte(cutTime));
     EEPROM.update(positionSelect+49,lowByte(cutTime));
-  }
-  EEPROM.update(40,true);// address 8 saved calibration status
+  }*/
+ // EEPROM.update(40,true);// address 8 saved calibration status
   Serial.println("All calibration values are saved");
   return true; //to be used to set calibration flag
 }
@@ -67,13 +68,32 @@ byte convertASCIItoByte(byte input){
  */
 inline long powint(int factor, int exponent)
 {
-  if (exponent < 0){
+  /*if (exponent < 0){
     long product = 0;
   }
-  else{
+  else{*/
    long product = 1;
    unsigned int counter = exponent;
    while ( (counter--) > 0) { product *= factor; }
    return product;
+ // }
+}
+
+void writeDefaultSettings(){
+  unsigned int value = 0;
+  while(value <= 10){
+    unsigned int cutRPM = 1500 + 500*value;
+    unsigned int cutTime = 150 + 5*value;
+    EEPROM.update(value+value,highByte(cutRPM));
+    EEPROM.update(value+value+1,lowByte(cutRPM));
+    EEPROM.update(value+value+32,highByte(cutTime));
+    EEPROM.update(value+value+33,lowByte(cutTime));
+    value++;
   }
+  EEPROM.update(70,4);
+  EEPROM.update(71,false);
+  EEPROM.update(72,false);
+  EEPROM.update(73,false);
+  EEPROM.update(255, 23);// address 8 saved calibration status
+    Serial.println("All calibration values are saved");
 }

@@ -22,16 +22,16 @@ byte pinThree = A2;
 byte pinFour = A3;
 
 //Program variables
-int cutRPM;
+unsigned int cutRPM;
 
-int timeToCut; 
+unsigned int timeToCut; 
 //int armVoltage;
 byte positionCheckcount = 0;
 byte potPosition;
 byte cylCount = 4;
 byte RPMerror = 0;
 
-byte bitField = B1000010; //field of working bits for states
+byte bitField = B11000001; //field of working bits for states; first bit is 7, last is 0
 
 #define BIT_POS_REP_FLAG  0 //Position Report enabled
 #define BIT_DIAG_REQUEST  1 
@@ -40,31 +40,22 @@ byte bitField = B1000010; //field of working bits for states
 #define BIT_ARM_TRIGGER   4
 #define BIT_SPARK_STATE   5
 #define BIT_TOYOTA_FAKE   6
+#define BIT_RPM_FILTER    7
 
-
-/*
-bool posRepFlag = true;
-bool diagRequest = false;
-bool clutchLogic = true;
-bool cutActive = false;
-bool armTriggerbool = false;
-bool SparkState;
-bool fakeOutState = false;
-*/
 
 //Working Variables
-long RPM;
-long RPMold;
+unsigned int RPM;
+unsigned int RPMold;
 unsigned long times;
 unsigned long timeOld;
-
+byte oldPotPos = 0;
 //bool correctionFlag = false;
 byte trigCounter;
 unsigned long cutTime;
 unsigned long positionReport = 0;
 
 //toyota function
-byte toyotaDivision = 0;
+unsigned int toyotaDivision = 0;
 byte timeCount = 0;
 unsigned long timeTick = 0;
 byte fakePin = 2;
@@ -85,7 +76,7 @@ void setup() {
 
   digitalWrite(bluePin,HIGH);
    Serial.println("Box Ready");
-	 
+//	 Serial.println(bitField);
    	//Initialize variables
 	 RPM = 0;
 	 RPMold = 0;
@@ -95,26 +86,40 @@ void setup() {
   cutRPM = 4000;
 	 /*armTriggerbool = false;
 	 bitSet(bitField, BIT_SPARK_STATE);*/
-  bitClear(bitField, BIT_DIAG_REQUEST);
+  //bitClear(bitField, BIT_DIAG_REQUEST);
+  //bitSet(bitField, BIT_RPM_FILTER);
+  //Serial.println(bitField);
   positionCheckcount = 0;
   trigCounter = 0;
   cutTime = 0;
   timeToCut = 5;
-	cylCount = EEPROM.read(70);
+	//cylCount = EEPROM.read(70);
+  potPosition = (8*!digitalRead(pinFour)) + (4*!digitalRead(pinThree)) +(2*!digitalRead(pinTwo)) +(!digitalRead(pinOne)) ;
+  if (EEPROM.read(255) != 23){
+    writeDefaultSettings();
+  }
+ loadCalibration();
  
  
   if (cylCount > 8){
     cylCount = 4;
   }
- bitWrite(bitField, BIT_CLUTCH_LOGIC, EEPROM.read(71));
 
 	 //Attach RPM input interrupt
   attachInterrupt(digitalPinToInterrupt(3), triggerCounter, RISING);
 }
 
 void loop() {
+  //Serial.println(bitRead(bitField, BIT_RPM_FILTER));
+  if ((bitRead(bitField, BIT_RPM_FILTER)) && ((micros() - timeOld) > 4000)){
+    attachInterrupt(digitalPinToInterrupt(3), triggerCounter, RISING);
+    //Serial.println("Filter ok");
+  }
 
-  toyotaFunction();
+  if (bitRead(bitField, BIT_TOYOTA_FAKE)){
+    toyotaFunction();
+  }
+  
   if (bitRead(bitField, BIT_CLUTCH_LOGIC)){
 
     bitWrite(bitField,BIT_ARM_TRIGGER,digitalRead(ArmTriggerPin));
@@ -157,8 +162,9 @@ void loop() {
       positionCheckcount++;
     }
     if (positionCheckcount > 250){
-      byte oldPotPos = (8*!digitalRead(pinFour)) + (4*!digitalRead(pinThree)) +(2*!digitalRead(pinTwo)) +(!digitalRead(pinOne)) ;
-     potPosition = positionCheck();
+      oldPotPos = potPosition;
+      potPosition = (8*!digitalRead(pinFour)) + (4*!digitalRead(pinThree)) +(2*!digitalRead(pinTwo)) +(!digitalRead(pinOne)) ;
+     //potPosition = positionCheck();
      if (oldPotPos != potPosition){
       loadCalibration();
      }
@@ -166,45 +172,24 @@ void loop() {
     }
 }
 
-byte positionCheck(){
-  byte potPosition = (8*!digitalRead(pinFour)) + (4*!digitalRead(pinThree)) +(2*!digitalRead(pinTwo)) +(!digitalRead(pinOne));
-
-    if ( (potPosition & 0x01) == 0) { 
-      byte high = EEPROM.read(potPosition);
-      byte low = EEPROM.read(potPosition+1);
-      //Serial.print("cutRPM: ");Serial.println(word(high,low));
-      cutRPM = word(high,low);
-      high = EEPROM.read(potPosition + 32);
-      low = EEPROM.read(potPosition + 33);
-      timeToCut = word(high,low); 
-     }
-    else{
-      byte high = EEPROM.read(potPosition+16);
-      byte low = EEPROM.read(potPosition + 17);
-      cutRPM = word(high,low);
-      high = EEPROM.read(potPosition + 48);
-      low = EEPROM.read(potPosition + 49);
-      timeToCut = word(high,low);
-    }
-  return potPosition;
-}
-
 void toyotaFunction(){
-	if(millis() > timeTick){
+	if(micros() > timeTick){
 		toyotaDivision = times/4;
-		timeTick = millis();
+		timeTick = micros();
 		timeCount++;
     //Serial.println("insideloop1");
 		if(timeCount > toyotaDivision){
 			timeCount = 0;
-			bitClear(bitField, BIT_TOYOTA_FAKE);
+			//bitSet(bitField, BIT_TOYOTA_FAKE);
       //    Serial.println(fakeOutState);
-			digitalWrite(fakePin, bitRead(bitField, BIT_TOYOTA_FAKE));
+      if (!bitRead(bitField, BIT_SPARK_STATE)){
+			  digitalWrite(fakePin, bitRead(bitField, HIGH));
+      }
 		}
-		if(timeCount == 1){
-			bitSet(bitField, BIT_TOYOTA_FAKE);
+		if(timeCount > 1){
+			//bitClear(bitField, BIT_TOYOTA_FAKE);
         //  Serial.println(bitRead(bitField, BIT_TOYOTA_FAKE));
-			digitalWrite(fakePin, bitRead(bitField, BIT_TOYOTA_FAKE));
+			digitalWrite(fakePin, bitRead(bitField, LOW));
 		}
 	}
 }
@@ -251,75 +236,82 @@ void SerialComms(){
     Serial.println("and the the desired cut time, in ms, followed by a semicolon.");
     Serial.println("Ex. w14;3500;50; saves a 3500 RPM and 50ms cut to position 14");
     while (i < 4){
-      
-      if (Serial.available()){
-        if (i == 0){
-          String serialRead =Serial.readStringUntil(';');
-            int serialInt = serialRead.toInt();
-            if (serialInt > 17){ serialInt = 17;}
-            byte serialByte = serialInt;
-          potPosition = serialByte;
-          Serial.print("i = "); Serial.print(i);Serial.print(" ");Serial.println(potPosition);
+      byte serialByte;
+      int serialInt;
+        while (i == 0){
+          if (Serial.available()){
+            serialByte = Serial.read();
+            if( serialByte == 59){
+              i++;
+              //Serial.println("Breaking");
+              break;
+            }
+            serialByte = serialByte - 48;
+            serialByte = constrain(serialByte, 0, 10);
+            potPosition = serialByte;
+            Serial.print("i = "); Serial.print(i);Serial.print(" ");Serial.println(potPosition);
+          }
+        }
+        while (i == 1){
+         byte readRPM[4];
+         byte digits = 0;
+         while (digits < 4){
+          if(Serial.available()){
+            readRPM[digits] = Serial.read()-48;
+            if (readRPM[digits] == 11){ break;}
+            //Serial.println(digits);
+           // Serial.println(readRPM[digits]);
+            digits++;
+          }
+         }
           i++;
-        }
-        else if (i == 1){
-          if (Serial.available()){
-            String serialRead =Serial.readStringUntil(';');
-            int serialInt = serialRead.toInt();
+          cutRPM = 0;
+          for (int i = 0; i < digits; i++){
+           // Serial.print(cutRPM);Serial.print(" + ");Serial.println(readRPM[i]*powint(10,digits-i-1));
+            cutRPM = cutRPM + readRPM[i]*powint(10,digits-i-1);
             
-            cutRPM = serialInt;
-            Serial.print("i = "); Serial.print(i);Serial.print(" ");Serial.println(cutRPM);
-            i++; // i = 2
-          }
+          }           
+          //cutRPM = readRPM[0]*1000 + readRPM[1]*100 + readRPM[2]*10 +readRPM[3];
+          cutRPM = constrain(cutRPM, 0, 8000);
+           Serial.print("i = "); Serial.print(i);Serial.print(" ");Serial.println(cutRPM);
+           if (Serial.peek() == 59){ Serial.read();}
         }
-        else if ( i == 2 ){
-          if (Serial.available()){
-            String serialRead =Serial.readStringUntil(';');
-            int serialInt = serialRead.toInt();            
-            timeToCut = serialInt;
-            Serial.print("i = "); Serial.print(i);Serial.print(" ");Serial.println(timeToCut);
-            i++; // i == 3
+        while ( i == 2 ){
+          byte readDC[4];
+         byte digits = 0;
+         while (digits < 4){
+          if(Serial.available()){
+            readDC[digits] = Serial.read()-48;
+            if (readDC[digits] == 11){ break;}
+            digits++;
           }
-        }// end elseif
-      }// end main serial available
+         }
+          i++;
+          timeToCut = 0;
+          for (int i = 0; i < digits; i++){
+            timeToCut = timeToCut + readDC[i]*powint(10,digits-i-1);
+          }
+            Serial.print("i = "); Serial.print(i);Serial.print(" ");Serial.print(timeToCut);Serial.print("ms");
+            Serial.println("");
+            if (Serial.peek() == 59){ Serial.read();}
+         
+          }
       if ( i == 3){
           Serial.print("i = "); Serial.print(i);Serial.print(" ");
           burnCalibration(potPosition, cutRPM, timeToCut);
           i++; // i == 4
       }
-   }// end while
+    }// end while
   } // End write command
   
   else if (commandChar == 'r'){
     bitWrite(bitField, BIT_DIAG_REQUEST, !bitRead(bitField, BIT_DIAG_REQUEST)); // activate diag
 
-
+    Serial.print("bitField = ");Serial.println(bitField, BIN);
     Serial.print("diagRequest = "); Serial.println(bitRead(bitField, BIT_DIAG_REQUEST));
-    if ( (potPosition & 0x01) == 0) { 
-      byte high = EEPROM.read(potPosition);
-      byte low = EEPROM.read(potPosition+1);
-      Serial.print("cutRPM: ");Serial.println(word(high,low));
-      high = EEPROM.read(potPosition + 32);
-
-      low = EEPROM.read(potPosition + 33);
-      Serial.print("timeToCut: ");Serial.println(word(high,low));
-
-     }
-    else{
-      byte high = EEPROM.read(potPosition+16);
-      byte low = EEPROM.read(potPosition + 17);
-      Serial.print("cutRPM: ");Serial.println(word(high,low));
-      high = EEPROM.read(potPosition + 48);
-      low = EEPROM.read(potPosition + 49);
-      Serial.print("timeToCut: ");Serial.println(word(high,low));
-    }
   }
   else if (commandChar == 'l'){
     loadCalibration();
-
-
-
-
   }
 
  else if (commandChar == 'i'){
@@ -328,7 +320,17 @@ void SerialComms(){
     EEPROM.update(71,(bitRead(bitField, BIT_CLUTCH_LOGIC)));
     Serial.println("Clutch logic inverted!");
   }// end I case
-  
+
+  else if (commandChar == 't'){
+    bitWrite(bitField, BIT_TOYOTA_FAKE, !(bitRead(bitField, BIT_TOYOTA_FAKE)));
+    EEPROM.update(72,(bitRead(bitField, BIT_TOYOTA_FAKE)));
+    Serial.println("Toyota output inverted!");
+  }
+  else if (commandChar == 'f'){
+    bitWrite(bitField, BIT_RPM_FILTER, !(bitRead(bitField, BIT_RPM_FILTER)));
+    EEPROM.update(73,(bitRead(bitField, BIT_RPM_FILTER)));
+    Serial.println("RPM Filter inverted!");
+  }
   else if (commandChar == 'c'){
     byte i = 0;
     Serial.println("Enter 'd' for distributor, 'w' for wasted spark, or 'c' for Coil On Plug");
@@ -357,6 +359,9 @@ void SerialComms(){
 }
 
 void triggerCounter(){
+  if(bitRead(bitField, BIT_RPM_FILTER)){
+    detachInterrupt(digitalPinToInterrupt(3));
+  }
   trigCounter++;
   //Serial.println("TRIGGER");
 }
@@ -366,15 +371,16 @@ void RPMcounter(){
   times = micros()-timeOld;        //finds the time 
   //Serial.print("Times: "); Serial.println(times);
   RPM = (30108000/times);         //calculates rpm
- // Serial.println(RPM);
+  //Serial.println(RPM);
   RPM = RPM*(cylCount);
+  if ((RPM > 0) && (RPM < 10000)){
+    RPMold = RPM;
+  }
   if ((RPM - RPMold) > 10000){
     RPM = RPMold;
   }
   timeOld = micros();
-  if ((RPM > 0) && (RPM < 12000)){
-    RPMold = RPM;
-  }
+  
   
   trigCounter = 0;
 }
@@ -401,54 +407,48 @@ void ignControl(){
   else{
     if ((RPM > cutRPM) && (bitRead(bitField, BIT_SPARK_STATE) == HIGH) && (!bitRead(bitField,BIT_CUT_ACTIVE))){
         //Spark is cut
+        //Serial.println("Cut Active");
         bitSet(bitField,BIT_CUT_ACTIVE);
+        bitClear(bitField, BIT_SPARK_STATE);
         cutTime = millis();
       }
-      if ((RPM < cutRPM +700) && (bitRead(bitField,BIT_CUT_ACTIVE) && (millis() - cutTime > timeToCut))){
+     else if ((RPM < cutRPM + 500) && (bitRead(bitField,BIT_CUT_ACTIVE) && (millis() - cutTime > timeToCut))){
         bitWrite(bitField, BIT_SPARK_STATE, !bitRead(bitField, BIT_SPARK_STATE));
         cutTime = millis();
         digitalWrite(bluePin, bitRead(bitField, BIT_SPARK_STATE));
         digitalWrite(redPin, !bitRead(bitField, BIT_SPARK_STATE));
       }
-      else if((RPM >= cutRPM + 700) && (bitRead(bitField,BIT_CUT_ACTIVE))){
+      else if((RPM >= cutRPM + 500) && (bitRead(bitField,BIT_CUT_ACTIVE))){
         bitClear(bitField, BIT_SPARK_STATE);
         digitalWrite(bluePin, LOW);
         digitalWrite(redPin, HIGH);
       }
       if (RPM < cutRPM - 1500){
+      //  Serial.println("emergency activation");
         digitalWrite(bluePin, HIGH);
         digitalWrite(redPin, LOW);
         bitClear(bitField,BIT_CUT_ACTIVE);
         bitSet(bitField, BIT_SPARK_STATE);
       }
   }
-  /*
-   if ((RPM > cutRPM) && (SparkState == HIGH) && (!cutActive){
-      //Spark is cut
-      bitClear(bitField, BIT_SPARK_STATE);
-      cutActive = true;
-      digitalWrite(bluePin, LOW);
-      digitalWrite(redPin, HIGH);
-      cutTime = millis();
-    }
-    else if (millis() - cutTime > timeToCut){
-      
-    }
-    else if (millis() - cutTime > timeToCut){
-      //Spark is restored after a set time
-      if (RPM > cutRPM){
-        RPM = cutRPM - 100;
-      } // forces spark on even if RPM is greater than cut for one cycle
-        bitSet(bitField, BIT_SPARK_STATE);
-        digitalWrite(bluePin, HIGH);
-        digitalWrite(redPin, LOW);
-        cutTime = millis();
-      }*/
+  //Serial.print("Ignition Output: ");Serial.println(bitRead(bitField, BIT_SPARK_STATE));
+
 }
 
 
 void loadCalibration(){
-
+  byte tempPotPos = (8*!digitalRead(pinFour)) + (4*!digitalRead(pinThree)) +(2*!digitalRead(pinTwo)) +(!digitalRead(pinOne));
+    Serial.print("tempPotPos = ");Serial.println(tempPotPos);
+    
+    cutRPM = word(EEPROM.read(tempPotPos+tempPotPos), EEPROM.read(tempPotPos+tempPotPos+1));
+    Serial.print("cutRPM: ");Serial.println(cutRPM);
+    timeToCut = word(EEPROM.read(tempPotPos+tempPotPos+32), EEPROM.read(tempPotPos+tempPotPos+33));
+    Serial.print("timeToCut: ");Serial.println(timeToCut);
+    cylCount = EEPROM.read(70);
+    bitWrite(bitField, BIT_CLUTCH_LOGIC, EEPROM.read(71));
+    bitWrite(bitField, BIT_TOYOTA_FAKE, EEPROM.read(72));
+    bitWrite(bitField, BIT_RPM_FILTER, EEPROM.read(73));
+  /*
   if ( (potPosition & 0x01) == 0) { 
       byte high = EEPROM.read(potPosition);
       byte low = EEPROM.read(potPosition+1);
@@ -465,5 +465,5 @@ void loadCalibration(){
       low = EEPROM.read(potPosition + 49);
       timeToCut = word(high,low);
 
-    }
+    }*/
 }
