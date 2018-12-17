@@ -200,7 +200,7 @@ void SerialDiag(){
   if (posRep >= 3000){
     Serial.print("Pot POsition: "); Serial.println(potPosition);
     Serial.print("cutRPM: "); Serial.println(cutRPM);
-    Serial.print("Time to Cut: "); Serial.print(timeToCut);Serial.println("ms");
+    Serial.print("RPM hysterisis: "); Serial.print(timeToCut);Serial.println("ms");
     Serial.print("Clutch Armed: ");Serial.println(bitRead(bitField,BIT_ARM_TRIGGER));
     Serial.print("CylMode: ");Serial.println(cylCount);
     //Serial.print("AnalogIn: ");Serial.println(armVoltage);
@@ -291,7 +291,7 @@ void SerialComms(){
           for (int i = 0; i < digits; i++){
             timeToCut = timeToCut + readDC[i]*powint(10,digits-i-1);
           }
-            Serial.print("i = "); Serial.print(i);Serial.print(" ");Serial.print(timeToCut);Serial.print("ms");
+            Serial.print("i = "); Serial.print(i);Serial.print(" ");Serial.print(timeToCut);Serial.print("rpm");
             Serial.println("");
             if (Serial.peek() == 59){ Serial.read();}
          
@@ -387,7 +387,7 @@ void RPMcounter(){
 
 void ignControl(){
   //Do ignition control methods
-
+/*
   if (timeToCut > 3000){
     if ((RPM > cutRPM) && (bitRead(bitField, BIT_SPARK_STATE) == HIGH) && (!bitRead(bitField,BIT_CUT_ACTIVE))){
       //Spark is cut
@@ -432,7 +432,19 @@ void ignControl(){
       }
   }
   //Serial.print("Ignition Output: ");Serial.println(bitRead(bitField, BIT_SPARK_STATE));
-
+*/
+  if (RPM > cutRPM){
+    bitClear(bitField, BIT_SPARK_STATE);
+    bitSet(bitField,BIT_CUT_ACTIVE);
+    digitalWrite(bluePin, LOW);
+    digitalWrite(redPin, HIGH);
+  }
+  else if (RPM < (cutRPM - timeToCut)){
+    digitalWrite(bluePin, HIGH);
+    digitalWrite(redPin, LOW);
+    bitClear(bitField,BIT_CUT_ACTIVE);
+    bitSet(bitField, BIT_SPARK_STATE);
+  }
 }
 
 
@@ -443,7 +455,7 @@ void loadCalibration(){
     cutRPM = word(EEPROM.read(tempPotPos+tempPotPos), EEPROM.read(tempPotPos+tempPotPos+1));
     Serial.print("cutRPM: ");Serial.println(cutRPM);
     timeToCut = word(EEPROM.read(tempPotPos+tempPotPos+32), EEPROM.read(tempPotPos+tempPotPos+33));
-    Serial.print("timeToCut: ");Serial.println(timeToCut);
+    Serial.print("RPM hysterisis: ");Serial.println(timeToCut);
     cylCount = EEPROM.read(70);
     bitWrite(bitField, BIT_CLUTCH_LOGIC, EEPROM.read(71));
     bitWrite(bitField, BIT_TOYOTA_FAKE, EEPROM.read(72));
